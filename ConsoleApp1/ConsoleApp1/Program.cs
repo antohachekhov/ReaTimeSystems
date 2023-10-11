@@ -1,18 +1,31 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO.Ports;
+using System.Linq;
 using System.Text;
 using System.Threading;
+using static PortChat;
 
 public class PortChat
 {
     static bool _continue;
     static SerialPort _serialPort;
 
+    // typeProtocol: 0 - bin, 1 - string
+    static bool typeProtocol = false;
+    static CheckSumAlg checkSumAlg = CheckSumAlg.Simple;
+
+    public enum CheckSumAlg
+    {
+        Simple = 0,
+        LRC = 1,
+        CRC16 = 2,
+        CRC32 = 3
+    }
+
     public static void Main()
     {
-        // Создает и контролирует поток, задает приоритет и возвращает статус.
-        Thread readThread = new Thread(Read);
 
         // Создание объекта последовательного порта с настройками по умолчанию 
         _serialPort = new SerialPort();
@@ -29,25 +42,16 @@ public class PortChat
         // Паритет четности: Mark(бит четности = 1) и Space(бит четности = 0)
         SetPortParity(ref _serialPort);
 
-
-        // ----------------------- скорее всего не надо
-        _serialPort.DataBits = SetPortDataBits(_serialPort.DataBits);
-        _serialPort.StopBits = SetPortStopBits(_serialPort.StopBits);
-
-        // Handshake - протокол установления связи для передачи данных через последовательный порт
-        _serialPort.Handshake = SetPortHandshake(_serialPort.Handshake);
-        // ----------------------- скорее всего не надо
-
-
         // Устанавливаем таймаут для чтения и записи
         _serialPort.ReadTimeout = 50000;
         _serialPort.WriteTimeout = 50000;
 
+        SetTypeProtocol();
+        SetCheckSumAlg();
 
         // Открывает соединение последовательного порта
         _serialPort.Open();
         _continue = true;
-        readThread.Start();
 
 
         // Задаем имя пользователя
@@ -64,34 +68,18 @@ public class PortChat
         {
             message = Console.ReadLine();
 
-            if (stringComparer.Equals("quit", message))
+            if (stringComparer.Equals("QUIT", message))
             {
                 _continue = false;
             }
             else
             {
-                _serialPort.WriteLine(
-                    String.Format("<{0}>: {1}", name, message));
+
             }
         }
 
-        readThread.Join();
         _serialPort.Close();
     }
-
-    public static void Read()
-    {
-        while (_continue)
-        {
-            try
-            {
-                string message = _serialPort.ReadLine();
-                Console.WriteLine(message);
-            }
-            catch (TimeoutException) { }
-        }
-    }
-
 
     // Отображдает существуюшие порты и задает выбранный порт
     public static void SetPortName(ref SerialPort _serialPort)
@@ -151,116 +139,303 @@ public class PortChat
         }
     }
 
-
-    public string GenerateDataPackage(string message, bool flag,  string checksum)
+    public static void SetTypeProtocol()
     {
-        string startPackage = "$";
+        Console.WriteLine("Возможные типы протоколо передачи данных:");
+        Console.WriteLine("   BIN");
+        Console.WriteLine("   STR");
+        Console.Write("Протокол передачи данных (По умолчанию: BIN): ");
+        string inputType = Console.ReadLine();
+        StringComparer stringComparer = StringComparer.OrdinalIgnoreCase;
 
-
-        // три десятичные цифры с выравниванием нулями слева
-        if (checksum.Length != 3)
-            Console.WriteLine("Неверно введена контрольная сумма");
-
-        string endPackage = "\n";
-
-
-        return startPackage + flag + message + checksum + endPackage;
+        if (inputType != "")
+        {
+            typeProtocol = !stringComparer.Equals("BIN", inputType);
+        }
     }
 
-    public static string calcSimpleCheckSum(string message)
+    public static void SetCheckSumAlg()
     {
-        // Кодировка ASCII
-        byte[] messageBytes = Encoding.ASCII.GetBytes(message);
-
-
-        string checksum = "000";
-        if(messageBytes.Length != 0)
+        Console.WriteLine("Существующие функции контрольной суммы:");
+        foreach (string s in Enum.GetNames(typeof(CheckSumAlg)))
         {
-            BitArray bitArray = new BitArray(8);
-            for (int i = 1; i < messageBytes.Length; i++)
-            {
-                bitArray
-            }
+            Console.WriteLine("   {0}", s);
         }
 
-        return checksum;
+        Console.Write("Функция контрольной суммы (По умолчанию: Simple): ");
+        string inputCheckSumAlg = Console.ReadLine();
+
+        if (inputCheckSumAlg != "")
+        {
+            checkSumAlg = (CheckSumAlg)Enum.Parse(typeof(CheckSumAlg), inputCheckSumAlg, true);
+        }
     }
 
-    public static string calcLongRedCheck(char P, string message)
+
+    public static byte CalcSimpleCheckSum(byte[] messageBytes)
     {
-        // 1 байт
-        byte[] messageBytes = Encoding.ASCII.GetBytes(message);
-        byte result = 0;
+        byte checkSum = 0;
+        foreach (byte b in messageBytes)
+        {
+            checkSum ^= b;
+        }
+        return checkSum;
+    }
+
+    public static byte CalcLongRedCheck(byte[] messageBytes)
+    {
+        int checkSum = 0;
 
         for (int i = 0; i < messageBytes.Length; i++)
         {
-            result += Byte()
+            checkSum += messageBytes[i] % 255;
         }
 
-        result -= FF;
-        
+        checkSum = (255 - checkSum + 1) % 255;
+
+        return (byte)checkSum;
+
     }
 
 
-
-    // Display DataBits values and prompt user to enter a value.
-    // Отобразить значения DataBits и предложить пользователю ввести значение
-    public static int SetPortDataBits(int defaultPortDataBits)
+    public static ushort CalcCRC16Sasha(byte[] messageBytes)
     {
-        string dataBits;
+        // задаем регистр CRC
+        ushort CRC = 0xFFFF;
 
-        Console.Write("Enter DataBits value (Default: {0}): ", defaultPortDataBits);
-        dataBits = Console.ReadLine();
-
-        if (dataBits == "")
+        for (int i = 0; i < messageBytes.Length; i++)
         {
-            dataBits = defaultPortDataBits.ToString();
+            // Первый байт сообщения складывается по исключающему ИЛИ с содер жимым регистра CRC
+            CRC = (ushort)((CRC & 0xFF00) + (messageBytes[i] ^ CRC));
+
+            for (int j = 0; j < 8; i++)
+            {
+
+                CRC <<= 1;
+                if ((CRC & 0x0001) != 0)
+                {
+                    CRC ^= 0xA001;
+                }
+                else
+                    CRC <<= 1;
+            }
         }
 
-        return int.Parse(dataBits.ToUpperInvariant());
+        return CRC;
     }
-
-    // Display StopBits values and prompt user to enter a value.
-    // Отобразить значения StopBits и предложить пользователю ввести значение
-    public static StopBits SetPortStopBits(StopBits defaultPortStopBits)
+    public static ushort CalcCRC16Ira(byte[] messageBytes)
     {
-        string stopBits;
+        // Задаем контрольную сумму из 2 байт 
+        ushort checkSum = 0;
 
-        Console.WriteLine("Available StopBits options:");
-        foreach (string s in Enum.GetNames(typeof(StopBits)))
+        // Начинаем обрабатывать сообщение побайтно
+        for (int i = 1; i < messageBytes.Length; i++)
         {
-            Console.WriteLine("   {0}", s);
+            checkSum ^= (ushort)(messageBytes[i] << 8); // сдвиг вправо
+
+            for (int j = 0; j < 8; j++)
+            {
+                if ((checkSum & 0x8000u) != 0) // если младший бит не равен 0, 32768 = 1000 0000 0000 0000
+                    checkSum = (ushort)((checkSum << 1) ^ 0x1021u); // исключающее или регистра, 4129 = 0001 0000 0010 0001
+                else // если нет
+                    checkSum <<= 1; // то сдвиг
+            }
         }
 
-        Console.Write("Enter StopBits value (None is not supported and \n" +
-         "raises an ArgumentOutOfRangeException. \n (Default: {0}):", defaultPortStopBits.ToString());
-        stopBits = Console.ReadLine();
-
-        if (stopBits == "")
-        {
-            stopBits = defaultPortStopBits.ToString();
-        }
-
-        return (StopBits)Enum.Parse(typeof(StopBits), stopBits, true);
+        return checkSum;
     }
-    public static Handshake SetPortHandshake(Handshake defaultPortHandshake)
+
+    // Получение сообщений
+    private void GetMessage()
     {
-        string handshake;
+        // Чтение полученных байтов
+        var receivedMessage = new byte[_serialPort.BytesToRead];
+        _serialPort.Read(receivedMessage, 0, _serialPort.BytesToRead);
 
-        Console.WriteLine("Available Handshake options:");
-        foreach (string s in Enum.GetNames(typeof(Handshake)))
-        {
-            Console.WriteLine("   {0}", s);
-        }
-
-        Console.Write("Enter Handshake value (Default: {0}):", defaultPortHandshake.ToString());
-        handshake = Console.ReadLine();
-
-        if (handshake == "")
-        {
-            handshake = defaultPortHandshake.ToString();
-        }
-
-        return (Handshake)Enum.Parse(typeof(Handshake), handshake, true);
+        // Проверка контрольной суммы
+        if (CheckControlSum(receivedMessage))
+            WriteMessageToConsole(receivedMessage);// Вывод сообщения на экран
     }
+
+
+    private void WriteMessageToConsole(byte[] messageBytes)
+    {
+        switch (checkSumAlg)
+        {
+            case CheckSumAlg.Simple:
+                {
+
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
+                    Console.WriteLine("Количество байт в полученном сообщении: " + messageBytes.Length.ToString());
+                    break;
+                }
+            case CheckSumAlg.LRC:
+                {
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
+                    Console.WriteLine("Количество байт в полученном сообщении: " + messageBytes.Length.ToString());
+                    break;
+                }
+            case CheckSumAlg.CRC16:
+                {
+                    break;
+                }
+            case CheckSumAlg.CRC32:
+                {
+                    break;
+                }
+        }
+
+
+        // Вывод сообщения на экран
+
+        if (typeProtocol)
+        {
+            Console.WriteLine("Полученное сообщение: " + BitConverter.ToDouble(messageBytes, 0).ToString());
+        }
+        else
+        {
+            Console.WriteLine("Полученное сообщение: " + _serialPort.Encoding.GetString(messageBytes));
+        }
+
+        return;
+    }
+
+
+    private bool CheckControlSum(byte[] messageBytes)
+    {
+        bool flagCheckSumEqual = false;
+        switch (checkSumAlg)
+        {
+            case CheckSumAlg.Simple:
+                {
+
+                    // Последний байт в сообщении - контрольная сумма
+                    byte checkSumInMessage = messageBytes[messageBytes.Length - 1];
+
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
+                    byte checkSum = CalcSimpleCheckSum(messageBytes);
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    // Сравнение двух сумм
+                    if (checkSum == checkSumInMessage)
+                    {
+                        flagCheckSumEqual = true;
+                    }
+                    break;
+                }
+            case CheckSumAlg.LRC:
+                {
+                    // Последний байт в сообщении - контрольная сумма
+                    byte checkSumInMessage = messageBytes[messageBytes.Length - 1];
+
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
+                    byte checkSum = CalcLongRedCheck(messageBytes);
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    // Сравнение двух сумм
+                    if (checkSum == checkSumInMessage)
+                    {
+                        flagCheckSumEqual = true;
+                    }
+                    break;
+                }
+            case CheckSumAlg.CRC16:
+                {
+
+                    break;
+                }
+            case CheckSumAlg.CRC32:
+                {
+                    break;
+                }
+        }
+
+        return flagCheckSumEqual;
+    }
+
+
+    // Вычисление контрольной суммы
+    private byte[] CalcCheckSum(byte[] messageBytes)
+    {
+        byte[] checkSum;
+
+        switch (checkSumAlg)
+        {
+            case CheckSumAlg.Simple:
+                {
+                    //контрольная сумма состоит из 1 байта
+                    checkSum = new byte[1];
+                    checkSum[0] = CalcSimpleCheckSum(messageBytes);
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    return checkSum;
+                }
+            case CheckSumAlg.LRC:
+                {
+                    // контрольная сумма состоит из 1 байта
+                    checkSum = new byte[1];
+                    checkSum[0] = CalcLongRedCheck(messageBytes);
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    return checkSum;
+                }
+            case CheckSumAlg.CRC16:
+                {
+
+                    checkSum = BitConverter.GetBytes(CalcCRC16Sasha(messageBytes));
+                    Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{ checkSum: X}");
+                    byte[] checkSum2 = BitConverter.GetBytes(CalcCRC16Ira(messageBytes));
+                    Console.WriteLine("Контрольная сумма посылки-Ира: " + $"0x{ checkSum2: X}");
+                    return checkSum;
+                }
+            case CheckSumAlg.CRC32:
+                {
+                    checkSum = new byte[3];
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    return checkSum;
+                }
+            default:
+                throw new Exception("Выбран нереализованный алгоритм подсчета контрольной суммы");
+        }
+    }
+
+
+    // Отправка сообщения
+    private void SendMessage(string message)
+    {
+
+        byte[] messageBytes;
+        // Если формат данных бинарный
+        if (typeProtocol)
+            try
+            {
+                messageBytes = BitConverter.GetBytes(Convert.ToDouble(message));
+            }
+            catch (FormatException)
+            {
+                throw new Exception("В биннарном формате передаются только числа");
+            }
+        else
+            messageBytes = _serialPort.Encoding.GetBytes(message);
+
+
+        // Добавление контрольной суммы
+        // Переведем массив байт в список, чтобы было проще добавить байты контрольной суммы
+        List<byte> messageListByte = messageBytes.ToList();
+
+        byte[] checkSum = CalcCheckSum(messageBytes);
+
+        for (int i = 0; i < checkSum.Length; i++)
+        {
+            messageListByte.Add(checkSum[i]);
+        }
+
+        messageBytes = messageListByte.ToArray();
+
+        // Отправка сообщения
+        _serialPort.Write(messageBytes, 0, message.Length);
+    }
+
+
+
 }
