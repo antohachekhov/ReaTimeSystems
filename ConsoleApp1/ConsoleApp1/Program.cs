@@ -14,6 +14,7 @@ public class PortChat
 
     // typeProtocol: 0 - bin, 1 - string
     static bool typeProtocol = false;
+    static string encoding = "ASCII";
     static CheckSumAlg checkSumAlg = CheckSumAlg.Simple;
 
     public enum CheckSumAlg
@@ -23,6 +24,7 @@ public class PortChat
         CRC16 = 2,
         CRC32 = 3
     }
+
 
     public static void Main()
     {
@@ -48,6 +50,7 @@ public class PortChat
 
         SetTypeProtocol();
         SetCheckSumAlg();
+        SetEncoding();
 
         // Подписка на обработчик получения сообщений
         _serialPort.DataReceived += GetMessage;
@@ -173,6 +176,23 @@ public class PortChat
         }
     }
 
+    public static void SetEncoding() {
+        Console.WriteLine("Существующие кодировки:");
+        Console.WriteLine("   ASCII");
+        Console.WriteLine("   UTF-8");
+
+        Console.Write("Кодировка (По умолчанию: ASCII): ");
+        string inputEncoding = Console.ReadLine();
+        StringComparer stringComparer = StringComparer.OrdinalIgnoreCase;
+
+        if (inputEncoding != "")
+        {
+            if(stringComparer.Equals("UTF-8", inputEncoding))
+            {
+                _serialPort.Encoding = Encoding.UTF8;
+            }
+        }
+    }
 
     public static byte CalcSimpleCheckSum(byte[] messageBytes)
     {
@@ -255,7 +275,7 @@ public class PortChat
         _serialPort.Read(receivedMessage, 0, _serialPort.BytesToRead);
 
         // Проверка контрольной суммы
-        if (CheckControlSum(receivedMessage))
+        if (CheckControlSum(receivedMessage));
             WriteMessageToConsole(receivedMessage);// Вывод сообщения на экран
     }
 
@@ -292,7 +312,7 @@ public class PortChat
 
         // Вывод сообщения на экран
 
-        if (typeProtocol)
+        if (!typeProtocol)
         {
             Console.WriteLine("Полученное сообщение: " + BitConverter.ToDouble(messageBytes, 0).ToString());
         }
@@ -317,11 +337,14 @@ public class PortChat
                     byte checkSumInMessage = messageBytes[messageBytes.Length - 1];
 
                     // Вычиселние сообщения без контрольной суммы
-                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
-                    byte checkSum = CalcSimpleCheckSum(messageBytes);
-                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    byte[] array = new byte[messageBytes.Length];
+                    messageBytes.CopyTo(array, 0);
+
+                    Array.Resize(ref array, array.Length - 1);
+                    byte[] checkSum = new byte[] { CalcSimpleCheckSum(array) };
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{BitConverter.ToString(checkSum)}");
                     // Сравнение двух сумм
-                    if (checkSum == checkSumInMessage)
+                    if (checkSum[0] == checkSumInMessage)
                     {
                         flagCheckSumEqual = true;
                     }
@@ -333,8 +356,11 @@ public class PortChat
                     byte checkSumInMessage = messageBytes[messageBytes.Length - 1];
 
                     // Вычиселние сообщения без контрольной суммы
-                    Array.Resize(ref messageBytes, messageBytes.Length - 1);
-                    byte checkSum = CalcLongRedCheck(messageBytes);
+                    byte[] array = new byte[messageBytes.Length];
+                    messageBytes.CopyTo(array, 0);
+
+                    Array.Resize(ref array, array.Length - 1);
+                    byte checkSum = CalcLongRedCheck(array);
                     Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
                     // Сравнение двух сумм
                     if (checkSum == checkSumInMessage)
@@ -408,7 +434,7 @@ public class PortChat
 
         byte[] messageBytes;
         // Если формат данных бинарный
-        if (typeProtocol)
+        if (!typeProtocol)
             try
             {
                 messageBytes = BitConverter.GetBytes(Convert.ToDouble(message));
@@ -432,10 +458,11 @@ public class PortChat
             messageListByte.Add(checkSum[i]);
         }
 
-        messageBytes = messageListByte.ToArray();
+        
+        byte[] newMessageBytes = messageListByte.ToArray();
 
         // Отправка сообщения
-        _serialPort.Write(messageBytes, 0, message.Length);
+        _serialPort.Write(newMessageBytes, 0, newMessageBytes.Length);
     }
 
 
