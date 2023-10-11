@@ -49,6 +49,8 @@ public class PortChat
         SetTypeProtocol();
         SetCheckSumAlg();
 
+        // Подписка на обработчик получения сообщений
+        _serialPort.DataReceived += GetMessage;
         // Открывает соединение последовательного порта
         _serialPort.Open();
         _continue = true;
@@ -75,7 +77,6 @@ public class PortChat
             else
             {
                 SendMessage(message);
-                GetMessage();
             }
         }
 
@@ -247,7 +248,7 @@ public class PortChat
     }
 
     // Получение сообщений
-    private static void GetMessage()
+    private static void GetMessage(object sender, SerialDataReceivedEventArgs e)
     {
         // Чтение полученных байтов
         var receivedMessage = new byte[_serialPort.BytesToRead];
