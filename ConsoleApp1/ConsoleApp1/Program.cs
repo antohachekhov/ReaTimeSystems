@@ -74,7 +74,7 @@ public class PortChat
             }
             else
             {
-
+                SendMessage(message);
             }
         }
 
@@ -246,7 +246,7 @@ public class PortChat
     }
 
     // Получение сообщений
-    private void GetMessage()
+    private static void GetMessage()
     {
         // Чтение полученных байтов
         var receivedMessage = new byte[_serialPort.BytesToRead];
@@ -258,7 +258,7 @@ public class PortChat
     }
 
 
-    private void WriteMessageToConsole(byte[] messageBytes)
+    private static void WriteMessageToConsole(byte[] messageBytes)
     {
         switch (checkSumAlg)
         {
@@ -303,7 +303,7 @@ public class PortChat
     }
 
 
-    private bool CheckControlSum(byte[] messageBytes)
+    private static bool CheckControlSum(byte[] messageBytes)
     {
         bool flagCheckSumEqual = false;
         switch (checkSumAlg)
@@ -357,7 +357,7 @@ public class PortChat
 
 
     // Вычисление контрольной суммы
-    private byte[] CalcCheckSum(byte[] messageBytes)
+    private static byte[] CalcCheckSum(byte[] messageBytes)
     {
         byte[] checkSum;
 
@@ -401,7 +401,7 @@ public class PortChat
 
 
     // Отправка сообщения
-    private void SendMessage(string message)
+    private static void SendMessage(string message)
     {
 
         byte[] messageBytes;
