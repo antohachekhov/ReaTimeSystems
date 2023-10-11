@@ -15,14 +15,15 @@ public class PortChat
     // typeProtocol: 0 - bin, 1 - string
     static bool typeProtocol = false;
     static string encoding = "ASCII";
-    static CheckSumAlg checkSumAlg = CheckSumAlg.Simple;
+    static CheckSumAlg checkSumAlg = CheckSumAlg.Not;
 
     public enum CheckSumAlg
     {
-        Simple = 0,
-        LRC = 1,
-        CRC16 = 2,
-        CRC32 = 3
+        Not = 0,
+        Simple = 1,
+        LRC = 2,
+        CRC16 = 3,
+        CRC32 = 4
     }
 
 
@@ -57,13 +58,6 @@ public class PortChat
         // Открывает соединение последовательного порта
         _serialPort.Open();
         _continue = true;
-
-
-        // Задаем имя пользователя
-        string name;
-        Console.Write("Name: ");
-        name = Console.ReadLine();
-
 
 
         string message;
@@ -167,7 +161,7 @@ public class PortChat
             Console.WriteLine("   {0}", s);
         }
 
-        Console.Write("Функция контрольной суммы (По умолчанию: Simple): ");
+        Console.Write("Функция контрольной суммы (По умолчанию: Not): ");
         string inputCheckSumAlg = Console.ReadLine();
 
         if (inputCheckSumAlg != "")
@@ -176,7 +170,8 @@ public class PortChat
         }
     }
 
-    public static void SetEncoding() {
+    public static void SetEncoding()
+    {
         Console.WriteLine("Существующие кодировки:");
         Console.WriteLine("   ASCII");
         Console.WriteLine("   UTF-8");
@@ -187,7 +182,7 @@ public class PortChat
 
         if (inputEncoding != "")
         {
-            if(stringComparer.Equals("UTF-8", inputEncoding))
+            if (stringComparer.Equals("UTF-8", inputEncoding))
             {
                 _serialPort.Encoding = Encoding.UTF8;
             }
@@ -206,64 +201,79 @@ public class PortChat
 
     public static byte CalcLongRedCheck(byte[] messageBytes)
     {
-        int checkSum = 0;
+        byte checkSum = 0;
 
         for (int i = 0; i < messageBytes.Length; i++)
         {
-            checkSum += messageBytes[i] % 255;
+            checkSum = (byte)((checkSum + messageBytes[i]) % 255);
         }
 
-        checkSum = (255 - checkSum + 1) % 255;
+        checkSum = (byte)(255 - checkSum);
+        checkSum = (byte)((checkSum + 1) % 255);
 
-        return (byte)checkSum;
+        return checkSum;
 
     }
 
 
-    public static ushort CalcCRC16Sasha(byte[] messageBytes)
-    {
-        // задаем регистр CRC
-        ushort CRC = 0xFFFF;
+    //public static ushort CalcCRC16Sasha(byte[] messageBytes)
+    //{
+    //    // задаем регистр CRC
+    //    ushort CRC = 0xFFFF;
 
-        for (int i = 0; i < messageBytes.Length; i++)
-        {
-            // Первый байт сообщения складывается по исключающему ИЛИ с содер жимым регистра CRC
-            CRC = (ushort)((CRC & 0xFF00) + (messageBytes[i] ^ CRC));
+    //    for (int i = 0; i < messageBytes.Length; i++)
+    //    {
+    //        // Первый байт сообщения складывается по исключающему ИЛИ с содер жимым регистра CRC
+    //        CRC = (ushort)((CRC & 0xFF00) + (messageBytes[i] ^ CRC));
 
-            for (int j = 0; j < 8; i++)
-            {
+    //        for (int j = 0; j < 8; j++)
+    //        {
 
-                CRC <<= 1;
-                if ((CRC & 0x0001) != 0)
-                {
-                    CRC ^= 0xA001;
-                }
-                else
-                    CRC <<= 1;
-            }
-        }
+    //            if ((CRC & 0x0001) != 0)
+    //            {
+    //                CRC = (ushort)((CRC >> 1) ^ (0xA001));
+    //            }
+    //            else
+    //                CRC >>= 1;
+    //        }
+    //    }
 
-        return CRC;
-    }
+    //    return CRC;
+    //}
     public static ushort CalcCRC16Ira(byte[] messageBytes)
     {
         // Задаем контрольную сумму из 2 байт 
         ushort checkSum = 0;
 
         // Начинаем обрабатывать сообщение побайтно
-        for (int i = 1; i < messageBytes.Length; i++)
+        for (int i = 0; i < messageBytes.Length; i++)
         {
             checkSum ^= (ushort)(messageBytes[i] << 8); // сдвиг вправо
 
             for (int j = 0; j < 8; j++)
             {
-                if ((checkSum & 0x8000u) != 0) // если младший бит не равен 0, 32768 = 1000 0000 0000 0000
-                    checkSum = (ushort)((checkSum << 1) ^ 0x1021u); // исключающее или регистра, 4129 = 0001 0000 0010 0001
+                if ((ushort)(checkSum & (ushort)0x8000u) != 0) // если младший бит не равен 0, 32768 = 1000 0000 0000 0000
+                    checkSum = (ushort)((ushort)(checkSum << 1) ^ (ushort)0x1021u); // исключающее или регистра, 4129 = 0001 0000 0010 0001
                 else // если нет
                     checkSum <<= 1; // то сдвиг
             }
         }
+        return checkSum;
+    }
 
+    public static uint CalcCRC32(byte[] messageBytes)
+    {
+        var crcTable = new uint[256];
+        uint checkSum;
+        for (uint i = 0; i < 256; i++)
+        {
+            checkSum = i;
+            for (uint j = 0; j < 8; j++)
+                checkSum = (checkSum & 1) != 0 ? (checkSum >> 1) ^ 0xEDB88320 : checkSum >> 1;
+            crcTable[i] = checkSum;
+        }
+        checkSum = messageBytes.Aggregate(0xFFFFFFFF, (current, s) => crcTable[(current ^ s) & 0xFF] ^ (current >> 8));
+        checkSum ^= 0xFFFFFFFF;
         return checkSum;
     }
 
@@ -275,8 +285,8 @@ public class PortChat
         _serialPort.Read(receivedMessage, 0, _serialPort.BytesToRead);
 
         // Проверка контрольной суммы
-        if (CheckControlSum(receivedMessage));
-            WriteMessageToConsole(receivedMessage);// Вывод сообщения на экран
+        if (CheckControlSum(receivedMessage)) ;
+        WriteMessageToConsole(receivedMessage);// Вывод сообщения на экран
     }
 
 
@@ -284,34 +294,40 @@ public class PortChat
     {
         switch (checkSumAlg)
         {
+            case CheckSumAlg.Not:
+                break;
             case CheckSumAlg.Simple:
                 {
 
                     // Вычиселние сообщения без контрольной суммы
                     Array.Resize(ref messageBytes, messageBytes.Length - 1);
-                    Console.WriteLine("Количество байт в полученном сообщении: " + messageBytes.Length.ToString());
                     break;
                 }
             case CheckSumAlg.LRC:
                 {
                     // Вычиселние сообщения без контрольной суммы
                     Array.Resize(ref messageBytes, messageBytes.Length - 1);
-                    Console.WriteLine("Количество байт в полученном сообщении: " + messageBytes.Length.ToString());
                     break;
                 }
             case CheckSumAlg.CRC16:
                 {
+
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 2);
                     break;
                 }
             case CheckSumAlg.CRC32:
                 {
+
+                    // Вычиселние сообщения без контрольной суммы
+                    Array.Resize(ref messageBytes, messageBytes.Length - 4);
                     break;
                 }
         }
 
 
         // Вывод сообщения на экран
-
+        Console.WriteLine("Количество байт в полученном сообщении: " + messageBytes.Length.ToString());
         if (!typeProtocol)
         {
             Console.WriteLine("Полученное сообщение: " + BitConverter.ToDouble(messageBytes, 0).ToString());
@@ -330,6 +346,8 @@ public class PortChat
         bool flagCheckSumEqual = false;
         switch (checkSumAlg)
         {
+            case CheckSumAlg.Not:
+                return true;
             case CheckSumAlg.Simple:
                 {
 
@@ -360,10 +378,10 @@ public class PortChat
                     messageBytes.CopyTo(array, 0);
 
                     Array.Resize(ref array, array.Length - 1);
-                    byte checkSum = CalcLongRedCheck(array);
-                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    byte[] checkSum = new byte[] { CalcLongRedCheck(array) };
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{BitConverter.ToString(checkSum)}");
                     // Сравнение двух сумм
-                    if (checkSum == checkSumInMessage)
+                    if (checkSum[0] == checkSumInMessage)
                     {
                         flagCheckSumEqual = true;
                     }
@@ -371,11 +389,58 @@ public class PortChat
                 }
             case CheckSumAlg.CRC16:
                 {
+                    // Последние 2 байта в сообщении - контрольная сумма
+                    byte[] checkSumInMessage = new byte[2];
+
+                    for (int i = 0; i < checkSumInMessage.Length; i++)
+                    {
+                        checkSumInMessage[i] = messageBytes[messageBytes.Length - checkSumInMessage.Length + i];
+                    }
+
+                    // Вычиселние сообщения без контрольной суммы
+                    byte[] array = new byte[messageBytes.Length];
+                    messageBytes.CopyTo(array, 0);
+                    Array.Resize(ref array, array.Length - 2);
+
+                    //byte[] checkSum = BitConverter.GetBytes(CalcCRC16Sasha(array));
+                    //Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{BitConverter.ToString(checkSum)}");
+
+                    byte[] checkSum = BitConverter.GetBytes(CalcCRC16Ira(array));
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{BitConverter.ToString(checkSum)}");
+
+                    if (checkSum.Equals(checkSumInMessage))
+                    {
+                        flagCheckSumEqual = true;
+                    }
 
                     break;
                 }
             case CheckSumAlg.CRC32:
                 {
+
+                    // Последние 2 байта в сообщении - контрольная сумма
+                    byte[] checkSumInMessage = new byte[4];
+
+                    for (int i = 0; i < checkSumInMessage.Length; i++)
+                    {
+                        checkSumInMessage[i] = messageBytes[messageBytes.Length - checkSumInMessage.Length + i];
+                    }
+
+                    // Вычиселние сообщения без контрольной суммы
+                    byte[] array = new byte[messageBytes.Length];
+                    messageBytes.CopyTo(array, 0);
+                    Array.Resize(ref array, array.Length - 4);
+
+                    //byte[] checkSum = BitConverter.GetBytes(CalcCRC16Sasha(array));
+                    //Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{BitConverter.ToString(checkSum)}");
+
+                    byte[] checkSum = BitConverter.GetBytes(CalcCRC32(array));
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{BitConverter.ToString(checkSum)}");
+
+                    if (checkSum.Equals(checkSumInMessage))
+                    {
+                        flagCheckSumEqual = true;
+                    }
                     break;
                 }
         }
@@ -391,6 +456,8 @@ public class PortChat
 
         switch (checkSumAlg)
         {
+            case CheckSumAlg.Not:
+                return new byte[0];
             case CheckSumAlg.Simple:
                 {
                     //контрольная сумма состоит из 1 байта
@@ -410,15 +477,13 @@ public class PortChat
             case CheckSumAlg.CRC16:
                 {
 
-                    checkSum = BitConverter.GetBytes(CalcCRC16Sasha(messageBytes));
-                    Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{  BitConverter.ToString(checkSum)}");
-                    byte[] checkSum2 = BitConverter.GetBytes(CalcCRC16Ira(messageBytes));
-                    Console.WriteLine("Контрольная сумма посылки-Ира: " + $"0x{ BitConverter.ToString(checkSum)}");
+                    checkSum = BitConverter.GetBytes(CalcCRC16Ira(messageBytes));
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
             case CheckSumAlg.CRC32:
                 {
-                    checkSum = new byte[3];
+                    checkSum = BitConverter.GetBytes(CalcCRC32(messageBytes));
                     Console.WriteLine("Контрольная сумма посылки: " + $"0x{  BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
@@ -446,7 +511,7 @@ public class PortChat
         else
             messageBytes = _serialPort.Encoding.GetBytes(message);
 
-
+        Console.WriteLine("Количество байт в отправленном сообщении: " + messageBytes.Length);
         // Добавление контрольной суммы
         // Переведем массив байт в список, чтобы было проще добавить байты контрольной суммы
         List<byte> messageListByte = messageBytes.ToList();
@@ -458,7 +523,7 @@ public class PortChat
             messageListByte.Add(checkSum[i]);
         }
 
-        
+
         byte[] newMessageBytes = messageListByte.ToArray();
 
         // Отправка сообщения
