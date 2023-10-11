@@ -75,6 +75,7 @@ public class PortChat
             else
             {
                 SendMessage(message);
+                GetMessage();
             }
         }
 
@@ -368,7 +369,7 @@ public class PortChat
                     //контрольная сумма состоит из 1 байта
                     checkSum = new byte[1];
                     checkSum[0] = CalcSimpleCheckSum(messageBytes);
-                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
             case CheckSumAlg.LRC:
@@ -376,22 +377,22 @@ public class PortChat
                     // контрольная сумма состоит из 1 байта
                     checkSum = new byte[1];
                     checkSum[0] = CalcLongRedCheck(messageBytes);
-                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{  BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
             case CheckSumAlg.CRC16:
                 {
 
                     checkSum = BitConverter.GetBytes(CalcCRC16Sasha(messageBytes));
-                    Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{ checkSum: X}");
+                    Console.WriteLine("Контрольная сумма посылки-Саша: " + $"0x{  BitConverter.ToString(checkSum)}");
                     byte[] checkSum2 = BitConverter.GetBytes(CalcCRC16Ira(messageBytes));
-                    Console.WriteLine("Контрольная сумма посылки-Ира: " + $"0x{ checkSum2: X}");
+                    Console.WriteLine("Контрольная сумма посылки-Ира: " + $"0x{ BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
             case CheckSumAlg.CRC32:
                 {
                     checkSum = new byte[3];
-                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{ checkSum: X}");
+                    Console.WriteLine("Контрольная сумма посылки: " + $"0x{  BitConverter.ToString(checkSum)}");
                     return checkSum;
                 }
             default:
